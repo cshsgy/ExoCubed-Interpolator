@@ -21,7 +21,8 @@ __global__ void interpolate_kernel(
 
     // TODO: calculate the face
     // Second step: do the rotation
-    // Then the input index. May be tricky at the corners.
+    // Then the input index. May be tricky at the borders and corners.
+    // As a first approximation, we can just use (two) nearest neighbors for border points.
 
     int64_t out_idx = lyr * n_lat * n_lon + lat * n_lon + lon;
     output[out_idx] = input[out_idx];
