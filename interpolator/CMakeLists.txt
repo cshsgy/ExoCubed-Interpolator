@@ -23,7 +23,7 @@ endif()
 # Add executable
 add_executable(test
     test.cu
-    interpolator_forw.cu
+    interpolator.cu
 )
 
 target_link_libraries(test PRIVATE 

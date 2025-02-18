@@ -39,3 +39,6 @@ build*/
 
 # dist
 dist*/
+
+# pycache
+__pycache__/

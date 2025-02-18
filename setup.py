@@ -1,30 +1,33 @@
 from setuptools import setup
+import os
+import sys
+import torch
+from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
-# Initialize empty extension modules and cmdclass
-ext_modules = []
-cmdclass = {}
+# Ensure CUDA is available
+if not torch.cuda.is_available():
+    raise RuntimeError("CUDA is not available. This package requires CUDA.")
 
-# Conditionally add CUDA extension
-try:
-    from torch.utils.cpp_extension import BuildExtension, CUDAExtension
-    ext_modules = [
-        CUDAExtension('interpolator', [
-            'interpolator/python_bindings.cpp',
-            'interpolator/interpolator_forw.cu'
-            # 'interpolator_back.cu',
-        ])
-    ]
-    cmdclass = {
-        'build_ext': BuildExtension
-    }
-except ImportError:
-    pass
+# Define the CUDA extension
+cuda_extension = CUDAExtension(
+    name='interpolator.interpolator',
+    sources=[
+        os.path.join('interpolator', 'python_bindings.cpp'),
+        os.path.join('interpolator', 'interpolator_forw.cu')
+    ],
+    extra_compile_args={
+        'cxx': ['-O3'],
+        'nvcc': ['-O3', '-std=c++14']
+    },
+    include_dirs=[os.path.join('interpolator')]
+)
 
 setup(
     name='interpolator',
+    version='0.1.1',
     packages=['interpolator'],
-    install_requires=['torch', 'numpy'],  # Added numpy as it's required by PyTorch
-    setup_requires=['torch'],
-    ext_modules=ext_modules,
-    cmdclass=cmdclass
+    ext_modules=[cuda_extension],
+    cmdclass={
+        'build_ext': BuildExtension
+    }
 ) 

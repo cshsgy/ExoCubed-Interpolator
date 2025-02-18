@@ -19,7 +19,7 @@ __global__ void interpolate_kernel(
 );
 
 // Host function declaration that will call the kernel
-torch::Tensor cubed_to_latlon_interpolate(
+torch::Tensor cubed_to_latlon(
     const torch::Tensor& input,
     const int n_lat,
     const int n_lon
