@@ -1,6 +1,6 @@
 Interpolator of canoe ExoCubed data
 Install:
-Under the folder `interpolator`, run:
+Under the root folder, run:
 ```
 pip install .
 ```
