@@ -3,6 +3,7 @@ import xarray as xr
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from tqdm import tqdm
 
 def latlon_to_gnomonic_cubedsphere(lat_deg, lon_deg):
     """
@@ -79,19 +80,30 @@ def alphabeta_to_indices(alpha, beta, N):
     id_beta = beta / dalpha + N / 2 - 0.5
     id_alphas = [int(id_alpha - 0.5), int(id_alpha + 0.5)]
     id_betas = [int(id_beta - 0.5), int(id_beta + 0.5)]
-    if id_alpha < 0:
+    if id_alpha < 0.5:
         id_alphas[0] = 0
         id_alphas[1] = 1
-    if id_alpha >= N:
+    if id_alpha >= N - 0.5:
         id_alphas[1] = N - 1
         id_alphas[0] = N - 2
-    if id_beta < 0:
+    if id_beta < 0.5:
         id_betas[0] = 0
         id_betas[1] = 1
-    if id_beta >= N:
+    if id_beta >= N - 0.5:
         id_betas[1] = N - 1
         id_betas[0] = N - 2
-    return id_alphas, id_betas
+    return id_alphas, id_betas, id_alpha, id_beta
+
+def interpolate_value(value, id_alphas, id_betas, id_alpha, id_beta):
+    # Bilinear interpolation weights
+    w00 = (id_alphas[1] - id_alpha) * (id_betas[1] - id_beta)
+    w01 = (id_alphas[1] - id_alpha) * (id_beta - id_betas[0]) 
+    w10 = (id_alpha - id_alphas[0]) * (id_betas[1] - id_beta)
+    w11 = (id_alpha - id_alphas[0]) * (id_beta - id_betas[0])
+    return value[id_alphas[0], id_betas[0]] * w00 + \
+           value[id_alphas[0], id_betas[1]] * w01 + \
+           value[id_alphas[1], id_betas[0]] * w10 + \
+           value[id_alphas[1], id_betas[1]] * w11
 
 def exocubed_reshaping(data: torch.Tensor):
     # data is a 3D tensor of shape (n_lyr, N*2, N*3)
@@ -113,7 +125,7 @@ def exocubed_reshaping(data: torch.Tensor):
 if __name__ == "__main__":
     # For example: lat = 45 N, lon = -90 E (i.e., lat=45, lon=-90)
     face_id, alpha, beta = latlon_to_gnomonic_cubedsphere(45.0, -90.0)
-    id_alphas, id_betas = alphabeta_to_indices(alpha, beta, 10)
+    id_alphas, id_betas, _, _ = alphabeta_to_indices(alpha, beta, 10)
     print(id_alphas, id_betas)
 
     # Load the dataset
@@ -149,15 +161,44 @@ if __name__ == "__main__":
     print(f"Face id check passed!")
 
     # Check the indices
+    max_error = 0
     for i in range(6):
         for j in range(48):
             for k in range(48):
                 face_id, alpha, beta = latlon_to_gnomonic_cubedsphere(lat[0, i, j, k], lon[0, i, j, k])
-                id_alphas, id_betas = alphabeta_to_indices(alpha, beta, 48)
+                id_alphas, id_betas, id_alpha, id_beta = alphabeta_to_indices(alpha, beta, 48)
+                error = abs(j - id_alpha) + abs(k - id_beta)
+                max_error = max(max_error, error)
                 if j not in id_alphas or k not in id_betas:
                     print(alpha, beta)
                     raise ValueError(f"Mismatch at ({j}, {k}) on face {i}, expected {j}, {k}, got {id_alphas}, {id_betas}")
     print(f"Indices check passed!")
-
-
-
+    print(f"Max error: {max_error}")
+    # Example interpolation of lat and lon, and plot
+    N_pts = 100
+    lat_grid = np.linspace(-90, 90, N_pts)
+    lon_grid = np.linspace(-180, 180, N_pts * 2)
+    plt.figure(figsize=(10, 10))
+    print("Interpolating...")
+    all_lat = []
+    all_lon = []
+    all_lat_interp = []
+    all_lon_interp = []
+    for i in tqdm(range(N_pts)):
+        for j in range(N_pts * 2):
+            face_id, alpha, beta = latlon_to_gnomonic_cubedsphere(lat_grid[i], lon_grid[j])
+            id_alphas, id_betas, id_alpha, id_beta = alphabeta_to_indices(alpha, beta, 48)
+            interpolated_lat = interpolate_value(lat[0, face_id], id_alphas, id_betas, id_alpha, id_beta)
+            all_lat.append(lat_grid[i])
+            all_lat_interp.append(interpolated_lat)
+            if abs(all_lat[-1] - all_lat_interp[-1]) > 3.0:
+                print(id_alphas, id_betas, id_alpha, id_beta)
+                print(lat[0, face_id, id_alphas[0], id_betas[0]], lat[0, face_id, id_alphas[0], id_betas[1]], lat[0, face_id, id_alphas[1], id_betas[0]], lat[0, face_id, id_alphas[1], id_betas[1]])
+                raise ValueError(f"Mismatch at ({i}, {j}), expected {all_lat[-1]}, got {all_lat_interp[-1]}")
+    plt.scatter(all_lat, all_lat_interp, c='blue')
+    plt.xlabel('Original Latitude')
+    plt.ylabel('Interpolated Latitude')
+    plt.title('Latitude Interpolation')
+    # Longitude is problematic because it is not a continuous function
+    plt.savefig('interpolation.png')
+            
