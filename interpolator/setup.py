@@ -6,8 +6,8 @@ setup(
     ext_modules=[
         CUDAExtension('interpolator', [
             'python_bindings.cpp',
-            'interpolator_forw.cu',
-            'interpolator_back.cu',
+            'interpolator_forw.cu'
+            # 'interpolator_back.cu',
         ])
     ],
     cmdclass={

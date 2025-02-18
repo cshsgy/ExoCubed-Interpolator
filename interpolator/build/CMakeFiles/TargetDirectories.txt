@@ -1,0 +1,3 @@
+/home/sam/ExoCubed-Interpolator/interpolator/build/CMakeFiles/test.dir
+/home/sam/ExoCubed-Interpolator/interpolator/build/CMakeFiles/edit_cache.dir
+/home/sam/ExoCubed-Interpolator/interpolator/build/CMakeFiles/rebuild_cache.dir

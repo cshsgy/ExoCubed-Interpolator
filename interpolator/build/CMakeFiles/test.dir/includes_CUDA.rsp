@@ -1,0 +1,1 @@
+-isystem "/home/sam/base/lib/python3.12/site-packages/torch/include" -isystem "/home/sam/base/lib/python3.12/site-packages/torch/include/torch/csrc/api/include" -isystem /usr/local/cuda/include

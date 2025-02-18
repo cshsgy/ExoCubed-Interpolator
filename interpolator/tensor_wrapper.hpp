@@ -7,7 +7,7 @@
 
 class TensorWrapper {
 public:
-    explicit TensorWrapper(torch::Tensor& tensor) : tensor_(tensor) {}
+    explicit TensorWrapper(const torch::Tensor& tensor) : tensor_(tensor) {}
     
     PRECISION* ptr() const {
         return tensor_.data_ptr<PRECISION>();
