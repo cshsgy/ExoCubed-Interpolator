@@ -30,3 +30,12 @@
 *.exe
 *.out
 *.app
+
+# build
+build*/
+
+# egg
+*.egg-info/
+
+# dist
+dist*/
