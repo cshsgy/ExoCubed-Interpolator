@@ -1,4 +1,4 @@
-#include "interpolator.cuh"
+#include "interp_forward.cuh"
 #include "tensor_wrapper.hpp"
 #include <cmath>
 

@@ -2,9 +2,9 @@ Interpolator of canoe ExoCubed data
 Install:
 Under the ./interpolator folder, run:
 ```
-pip install .
+python setup.py build_ext --inplace
 ```
-Sometimes I need sudo for it to be able to find torch installed in the system.
+No idea why it's not working with pip install . for now. Copied from a working example.
 
 Usage:
 ```
