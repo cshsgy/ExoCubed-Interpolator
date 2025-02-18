@@ -160,12 +160,18 @@ def exo_to_latlon(exo_data, n_lat, n_lon):
     return value_interp
 
 if __name__ == "__main__":
+    import time
     exo_data = xr.open_dataset('W92_single.nc')
     data = np.squeeze(exo_data['U'].values[:,0,:,:])
     data = torch.from_numpy(data).unsqueeze(0)
     n_lat, n_lon = 100, 200
     lat = np.linspace(-90, 90, n_lat)
     lon = np.linspace(-180, 180, n_lon)
-    latlon_data = exo_to_latlon(exocubed_reshaping(data), n_lat, n_lon)
+    start_time = time.time()
+    for i in range(100):
+        latlon_data = exo_to_latlon(exocubed_reshaping(data), n_lat, n_lon)
+        torch.cuda.synchronize()
+    end_time = time.time()
+    print(f"Average time taken: {(end_time - start_time) / 100} seconds")
     plt.imshow(latlon_data[0,:,:])
     plt.savefig('test_U_latlon.png')
