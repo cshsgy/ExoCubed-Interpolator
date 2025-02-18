@@ -159,6 +159,18 @@ def exo_to_latlon(exo_data, n_lat, n_lon):
     value_interp = interpolate_value(exo_data, face, id_alphas, id_betas, id_alpha, id_beta)
     return value_interp
 
+def latlon_from_nc(nc_file, var_name, n_lat, n_lon, is_2D=False):
+    exo_data = xr.open_dataset(nc_file)
+    if is_2D:
+        data = np.squeeze(exo_data[var_name].values[:,0,:,:])
+        if data.ndim == 2:
+            data = data[None, :, :]
+        data = torch.from_numpy(data)
+    else:
+        data = exo_data[var_name].values
+        data = data.reshape(data.shape[0] * data.shape[1], *data.shape[2:])
+    return exo_to_latlon(exocubed_reshaping(data), n_lat, n_lon)
+
 if __name__ == "__main__":
     import time
     exo_data = xr.open_dataset('W92_single.nc')
