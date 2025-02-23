@@ -25,7 +25,7 @@ def spherical_vorticity_torch(u, v, R, n_lat, n_lon, planetary_omega=None):
     dvcos_dlam = torch.gradient(vcos, spacing=dlam, dim=2)[0]  # partial wrt axis=2
     du_dphi = torch.gradient(u, spacing=dphi, dim=1)[0]        # partial wrt axis=1
     # zeta_rel = (1 / (R cos(phi))) * [ dvcos_dlam - du_dphi ]
-    zeta_rel = (dvcos_dlam - du_dphi) / (R * cos_phi)
+    zeta_rel = (dvcos_dlam - du_dphi) / R # / (R * cos_phi)
 
     if planetary_omega is not None:
         zeta_abs = zeta_rel + 2.0 * planetary_omega * sin_phi
