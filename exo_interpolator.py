@@ -12,7 +12,7 @@ def exocubed_reshaping(data: torch.Tensor):
     #-------------
     #| 0 | 2 | 1 |
     N = data.shape[1] // 2
-    output = torch.empty((data.shape[0], 6, N, N))
+    output = torch.empty((data.shape[0], 6, N, N), device=data.device)
     output[:, 0, :, :] = data[:, N:2*N, :N]
     output[:, 1, :, :] = data[:, N:2*N, 2*N:3*N]
     output[:, 2, :, :] = data[:, :N, N:2*N]
@@ -22,7 +22,7 @@ def exocubed_reshaping(data: torch.Tensor):
     return output
 
 
-def latlon_to_gnomonic_cubedsphere(lat_deg, lon_deg):
+def latlon_to_gnomonic_cubedsphere(lat_deg, lon_deg, device: torch.device | None = None):
     """
     Convert (latitude, longitude) in degrees to
     - face index on the cubed sphere (0 through 5)
@@ -36,21 +36,21 @@ def latlon_to_gnomonic_cubedsphere(lat_deg, lon_deg):
     Note: both inputs are tensors of shape (n_lyr, n_lat, n_lon)
     """
     # 1. Convert degrees to radians
-    lat = torch.deg2rad(lat_deg)
-    lon = torch.deg2rad(lon_deg)
+    lat = torch.deg2rad(lat_deg).to(device)
+    lon = torch.deg2rad(lon_deg).to(device)
     
     # 2. Convert spherical (lat, lon) to Cartesian (x, y, z) on the unit sphere
-    x = torch.cos(lat) * torch.cos(lon)
-    y = torch.cos(lat) * torch.sin(lon)
-    z = torch.sin(lat)
+    x = (torch.cos(lat) * torch.cos(lon)).to(device)
+    y = (torch.cos(lat) * torch.sin(lon)).to(device)
+    z = torch.sin(lat).to(device)
     
     # 3. Determine which face of the cube
-    absx, absy, absz = torch.abs(x), torch.abs(y), torch.abs(z)
+    absx, absy, absz = torch.abs(x).to(device), torch.abs(y).to(device), torch.abs(z).to(device)
 
     # 4. Determine the face and the gnomonic coordinates
-    face = torch.empty_like(x)
-    alpha = torch.empty_like(x)
-    beta = torch.empty_like(x)
+    face = torch.empty_like(x, device=device)
+    alpha = torch.empty_like(x, device=device)
+    beta = torch.empty_like(x, device=device)
     # +X face
     tmp_idx = torch.where((absx >= absy) & (absx >= absz) & (x > 0))
     face[tmp_idx] = 0
@@ -160,7 +160,7 @@ def exo_to_latlon(exo_data, n_lat, n_lon):
     lon = np.tile(lon[None, :, :], (exo_data.shape[0], 1, 1))
     lat = torch.from_numpy(lat)
     lon = torch.from_numpy(lon)
-    face, alpha, beta = latlon_to_gnomonic_cubedsphere(lat, lon)
+    face, alpha, beta = latlon_to_gnomonic_cubedsphere(lat, lon, device=exo_data.device)
     id_alphas, id_betas, id_alpha, id_beta = alphabeta_to_indices(alpha, beta, N)
     value_interp = interpolate_value(exo_data, face, id_alphas, id_betas, id_alpha, id_beta)
     return value_interp
@@ -188,19 +188,17 @@ def latlon_from_nc(nc_file: str,
 def height_to_pres(
     value: torch.Tensor,
     pres: torch.Tensor,
-    height: torch.Tensor,
     pres_ref: float = 101325,
     n_pres_lyr: int | None = None
-) -> torch.Tensor:
+) -> tuple[torch.Tensor, tuple[int, int, int, int]]:
     # value: (n_time, n_lyr, n_lat, n_lon)
     # pres: (n_time, n_lyr, n_lat, n_lon)
-    # height: (n_time, n_lyr, n_lat, n_lon)
     # Output: pres_interp: (n_time, n_pres_lyr, n_lat, n_lon)
-    
+    assert value.shape == pres.shape
     device = value.device
     if n_pres_lyr is None:
         n_pres_lyr = value.shape[1]
-
+    n_time, n_lyr, n_lat, n_lon = value.shape
     pres_norm = pres / pres_ref
     pres_norm_flipped = torch.flip(pres_norm, dims=[1])
     value_flipped = torch.flip(value, dims=[1])
@@ -225,13 +223,16 @@ def height_to_pres(
     interp_value = val_lower + weight * (val_upper - val_lower)
     pres_interp = interp_value.permute(0, 3, 1, 2)
 
-    return pres_interp
+    return pres_interp, (n_time, n_pres_lyr, n_lat, n_lon)
 
 if __name__ == "__main__":
     import time
     exo_data = xr.open_dataset('hotjupiter-main.nc')
-    data = exo_data['vel1'].values[1, :, :, :][None, :, :, :]
+    data = exo_data['vel1'].values
+    pres = exo_data['press'].values
     data = torch.from_numpy(data).cuda()
+    print(data[1, 0, :, :].mean())
+    pres = torch.from_numpy(pres).cuda()
     n_lat, n_lon = 100, 200
     lat = np.linspace(-90, 90, n_lat)
     lon = np.linspace(-180, 180, n_lon)
@@ -241,10 +242,17 @@ if __name__ == "__main__":
     data_shape4[3] = n_lon
     data_shape4 = tuple(data_shape4)
     data_reshaped = data.reshape(data.shape[0] * data.shape[1], *data.shape[2:])
-    for i in range(100):
+    pres_reshaped = pres.reshape(pres.shape[0] * pres.shape[1], *pres.shape[2:])
+    n_repeat = 2
+    for i in range(n_repeat):
         latlon_data = exo_to_latlon(exocubed_reshaping(data_reshaped), n_lat, n_lon)
+        pres_data = exo_to_latlon(exocubed_reshaping(pres_reshaped), n_lat, n_lon)
+        latlon_data_pres, data_shape4 = height_to_pres(latlon_data.reshape(data_shape4), pres_data.reshape(data_shape4))
+        data_output = latlon_data_pres.reshape(data_shape4)
         torch.cuda.synchronize()
     end_time = time.time()
-    print(f"Average time taken: {(end_time - start_time) / 100} seconds")
-    plt.imshow(latlon_data.reshape(data_shape4)[0,0,:,:])
+    print(f"Average time taken: {(end_time - start_time) / n_repeat} seconds")
+    print(data_output.shape)
+    print(data_output[1,0,:,:].mean())
+    plt.imshow(data_output[1,0,:,:].cpu().numpy())
     plt.savefig('test_rho_latlon.png')
