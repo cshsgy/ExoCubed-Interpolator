@@ -120,7 +120,13 @@ def interpolate_value(value, face, id_alphas, id_betas, id_alpha, id_beta):
     # id_alpha: (n_lyr, nlat, nlon)
     # id_beta: (n_lyr, nlat, nlon)
     # Output: value_interp: (n_lyr, nlat, nlon)
-    
+    if len(face.shape) == 3:
+        face = face[0]
+        id_alphas = [id_alphas[0][0], id_alphas[1][0]]
+        id_betas = [id_betas[0][0], id_betas[1][0]]
+        id_alpha = id_alpha[0]
+        id_beta = id_beta[0]
+
     # Flatten all coordinate tensors, ensure can be used as indices
     flat_face = face.flatten().to(torch.int64)
     flat_alpha0 = id_alphas[0].flatten().to(torch.int64)
@@ -139,7 +145,7 @@ def interpolate_value(value, face, id_alphas, id_betas, id_alpha, id_beta):
              value[:, flat_face, flat_alpha1, flat_beta0] * w10 + 
              value[:, flat_face, flat_alpha1, flat_beta1] * w11)
     
-    return result.reshape(value.shape[0], face.shape[1], face.shape[2])
+    return result.reshape(value.shape[0], face.shape[0], face.shape[1])
 
 def exo_to_latlon(exo_data, n_lat, n_lon):
     # exo_data is a 4D tensor of shape (n_lyr, 6, N, N)
@@ -159,7 +165,13 @@ def exo_to_latlon(exo_data, n_lat, n_lon):
     value_interp = interpolate_value(exo_data, face, id_alphas, id_betas, id_alpha, id_beta)
     return value_interp
 
-def latlon_from_nc(nc_file, var_name, n_lat, n_lon, is_2D=False):
+def latlon_from_nc(nc_file: str, 
+    var_name: str, 
+    n_lat: int, 
+    n_lon: int, 
+    is_2D: bool = False,
+    n_time: int | None = None
+) -> torch.Tensor:
     exo_data = xr.open_dataset(nc_file)
     if is_2D:
         data = np.squeeze(exo_data[var_name].values[:,0,:,:])
@@ -168,22 +180,71 @@ def latlon_from_nc(nc_file, var_name, n_lat, n_lon, is_2D=False):
         data = torch.from_numpy(data)
     else:
         data = exo_data[var_name].values
-        data = data.reshape(data.shape[0] * data.shape[1], *data.shape[2:])
-    return exo_to_latlon(exocubed_reshaping(data), n_lat, n_lon)
+        n_time = data.shape[0]
+        data = data.reshape(n_time * data.shape[1], *data.shape[2:]) # hide n_time into n_lyr
+    data = exo_to_latlon(exocubed_reshaping(data), n_lat, n_lon)
+    return data.reshape(n_time, *data.shape[1:]) if n_time is not None else data
+
+def height_to_pres(
+    value: torch.Tensor,
+    pres: torch.Tensor,
+    height: torch.Tensor,
+    pres_ref: float = 101325,
+    n_pres_lyr: int | None = None
+) -> torch.Tensor:
+    # value: (n_time, n_lyr, n_lat, n_lon)
+    # pres: (n_time, n_lyr, n_lat, n_lon)
+    # height: (n_time, n_lyr, n_lat, n_lon)
+    # Output: pres_interp: (n_time, n_pres_lyr, n_lat, n_lon)
+    
+    device = value.device
+    if n_pres_lyr is None:
+        n_pres_lyr = value.shape[1]
+
+    pres_norm = pres / pres_ref
+    pres_norm_flipped = torch.flip(pres_norm, dims=[1])
+    value_flipped = torch.flip(value, dims=[1])
+    pres_norm_t = pres_norm_flipped.permute(0, 2, 3, 1)
+    value_t = value_flipped.permute(0, 2, 3, 1)
+    n_lyr = value_t.shape[-1]
+    pres_lyr = torch.linspace(0, 1, n_pres_lyr, device=device)
+
+    indices = torch.searchsorted(pres_norm_t, pres_lyr.expand(pres_norm_t.shape[:-1] + (n_pres_lyr,)))
+    indices = torch.clamp(indices, 1, n_lyr - 1)
+    upper_indices = indices
+    lower_indices = indices - 1
+
+    pres_lower = torch.gather(pres_norm_t, dim=-1, index=lower_indices)
+    pres_upper = torch.gather(pres_norm_t, dim=-1, index=upper_indices)
+    val_lower = torch.gather(value_t, dim=-1, index=lower_indices)
+    val_upper = torch.gather(value_t, dim=-1, index=upper_indices)
+
+    pres_diff = pres_upper - pres_lower
+    weight = (pres_lyr.view(1, 1, 1, -1) - pres_lower) / (pres_diff + 1e-9)
+    weight = torch.clamp(weight, 0.0, 1.0)
+    interp_value = val_lower + weight * (val_upper - val_lower)
+    pres_interp = interp_value.permute(0, 3, 1, 2)
+
+    return pres_interp
 
 if __name__ == "__main__":
     import time
-    exo_data = xr.open_dataset('W92_single.nc')
-    data = np.squeeze(exo_data['U'].values[:,0,:,:])
-    data = torch.from_numpy(data).unsqueeze(0)
+    exo_data = xr.open_dataset('hotjupiter-main.nc')
+    data = exo_data['vel1'].values[1, :, :, :][None, :, :, :]
+    data = torch.from_numpy(data).cuda()
     n_lat, n_lon = 100, 200
     lat = np.linspace(-90, 90, n_lat)
     lon = np.linspace(-180, 180, n_lon)
     start_time = time.time()
+    data_shape4 = list(data.shape)
+    data_shape4[2] = n_lat
+    data_shape4[3] = n_lon
+    data_shape4 = tuple(data_shape4)
+    data_reshaped = data.reshape(data.shape[0] * data.shape[1], *data.shape[2:])
     for i in range(100):
-        latlon_data = exo_to_latlon(exocubed_reshaping(data), n_lat, n_lon)
+        latlon_data = exo_to_latlon(exocubed_reshaping(data_reshaped), n_lat, n_lon)
         torch.cuda.synchronize()
     end_time = time.time()
     print(f"Average time taken: {(end_time - start_time) / 100} seconds")
-    plt.imshow(latlon_data[0,:,:])
-    plt.savefig('test_U_latlon.png')
+    plt.imshow(latlon_data.reshape(data_shape4)[0,0,:,:])
+    plt.savefig('test_rho_latlon.png')
