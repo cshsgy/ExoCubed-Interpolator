@@ -19,10 +19,55 @@ class Operations(Enum):
     VerticalSlice = 4
     MeridionalAverage = 5
 
+class Units(dict):
+    def __init__(self, kg: int = 0, m: int = 0, s: int = 0, K: int = 0):
+        self["kg"] = kg
+        self["m"] = m
+        self["s"] = s
+        self["K"] = K
+    
+    def repr_one(self, item:str):
+        if self[item] == 0:
+            return ""
+        elif self[item] == 1:
+            return item
+        else:
+            return f"{item}^{self[item]}"
+    
+    def __str__(self):
+        kg_str = self.repr_one("kg")
+        m_str = self.repr_one("m")
+        s_str = self.repr_one("s")
+        K_str = self.repr_one("K")
+        return f"{kg_str} {m_str} {s_str} {K_str}"
+    
+    def mul(self, other: "Units"):
+        return Units(kg=self["kg"] + other["kg"], m=self["m"] + other["m"], s=self["s"] + other["s"], K=self["K"] + other["K"])
+    
+    def div(self, other: "Units"):
+        return Units(kg=self["kg"] - other["kg"], m=self["m"] - other["m"], s=self["s"] - other["s"], K=self["K"] - other["K"])
+
+def get_units(variable_name: VariableNames | str):
+    if variable_name == VariableNames.RHO:
+        return Units(kg=1, m=-1)
+    elif variable_name == VariableNames.PRES:
+        return Units(kg=1, m=-1, s=-2)
+    elif variable_name == VariableNames.U:
+        return Units(m=1, s=-1)
+    elif variable_name == VariableNames.V:
+        return Units(m=1, s=-1)
+    elif variable_name == VariableNames.W:
+        return Units(m=1, s=-1)
+    elif variable_name == VariableNames.TEMP:
+        return Units(K=1)
+    else:
+        return None
+
 class Exo3DVariable:
-    def __init__(self, name: VariableNames | str, data: torch.Tensor, operations: list[Operations] | None = None):
+    def __init__(self, name: VariableNames | str, data: torch.Tensor, units: Units | None = None, operations: list[Operations] | None = None):
         self.name = name
         self.data = data
+        self.units = units
         self.operations = operations if operations is not None else []
         
     def apply_operation(self, operation: Operations, slice_index: int | None = None):
@@ -55,7 +100,7 @@ class Exo3DVariable:
         return self.data.shape
 
     def copy(self):
-        return Exo3DVariable(self.name, self.data.clone(), self.operations.copy())
+        return Exo3DVariable(self.name, self.data.clone(), self.units, self.operations.copy())
     
     def get_data(self, extended: bool = False):
         dims_to_extend = []
@@ -95,7 +140,7 @@ class Exo3DObject:
         else:
             self.time_index_range = (0, -1)
     
-    def get_data(self, variable_name: VariableNames | str = VariableNames.RHO):
+    def get_data(self, variable_name: VariableNames | str = VariableNames.RHO, units: Units | None = None):
         for variable in self.variables:
             if variable.name == variable_name:
                 return variable.data
@@ -106,7 +151,7 @@ class Exo3DObject:
         if self.n_pres_lyr != -1 and variable_name != VariableNames.PRES:
             data, pres_shape4 = height_to_pres(data, self.get_data(VariableNames.PRES), n_pres_lyr=self.n_pres_lyr)
             self.shape4 = pres_shape4
-        self.variables.append(Exo3DVariable(variable_name, data))
+        self.variables.append(Exo3DVariable(variable_name, data, units=units if units is not None else get_units(variable_name)))
         return data
     
     def get_variable(self, variable_name: VariableNames | str):
@@ -137,6 +182,7 @@ class Exo3DObject:
         var_2_residual = var_2_avg.get_data_extended() - var_2.get_data_extended()
         residual_product = Exo3DVariable(name=f"{variable_name_1}_{variable_name_2}_eddy_flux", 
                                          data=torch.squeeze(var_1_residual * var_2_residual),
+                                         units=var_1.units.mul(var_2.units),
                                          operations=var_1.operations.copy())
         residual_product.apply_operation(Operations.TimeAverage)
         residual_product.apply_operation(Operations.ZonalAverage)

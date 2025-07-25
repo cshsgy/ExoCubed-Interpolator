@@ -1,6 +1,5 @@
-from exo_3d_object import Exo3DObject, VariableNames, Operations
-import matplotlib.pyplot as plt
-import torch
+from exo_3d_object import Exo3DObject, VariableNames, Operations, Units
+from plotting_utils import plot_xy, plot_xz
 
 if __name__ == "__main__":
     exo_3d = Exo3DObject(
@@ -12,7 +11,7 @@ if __name__ == "__main__":
         )
 
     var_1 = exo_3d.get_data(VariableNames.RHO)
-    var_2 = exo_3d.get_data("vel2")
+    var_2 = exo_3d.get_data("vel2", units=Units(m=1, s=-1))
 
     print([variable.name for variable in exo_3d.variables])
 
@@ -21,6 +20,5 @@ if __name__ == "__main__":
     print(eddy_flux.get_data().shape)
     print(eddy_flux.name)
 
-    plt.imshow(eddy_flux.get_data().cpu().numpy())
-    plt.colorbar()
-    plt.savefig("rho_vel2_eddy_flux.png")
+    figure = plot_xz(exo_3d, var=eddy_flux)
+    figure.savefig("rho_vel2_eddy_flux.png", dpi=600)
