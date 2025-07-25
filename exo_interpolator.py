@@ -169,21 +169,16 @@ def latlon_from_nc(nc_file: str,
     var_name: str, 
     n_lat: int, 
     n_lon: int, 
-    is_2D: bool = False,
     n_time: int | None = None
 ) -> torch.Tensor:
     exo_data = xr.open_dataset(nc_file)
-    if is_2D:
-        data = np.squeeze(exo_data[var_name].values[:,0,:,:])
-        if data.ndim == 2:
-            data = data[None, :, :]
-        data = torch.from_numpy(data)
-    else:
-        data = exo_data[var_name].values
-        n_time = data.shape[0]
-        data = data.reshape(n_time * data.shape[1], *data.shape[2:]) # hide n_time into n_lyr
+    data = exo_data[var_name].values
+    n_time = data.shape[0]
+    n_lyr = data.shape[1]
+    data = torch.from_numpy(data).cuda()
+    data = data.reshape(n_time * data.shape[1], *data.shape[2:]) # hide n_time into n_lyr
     data = exo_to_latlon(exocubed_reshaping(data), n_lat, n_lon)
-    return data.reshape(n_time, *data.shape[1:]) if n_time is not None else data
+    return data.reshape(n_time, n_lyr, *data.shape[1:])
 
 def height_to_pres(
     value: torch.Tensor,
@@ -205,7 +200,7 @@ def height_to_pres(
     pres_norm_t = pres_norm_flipped.permute(0, 2, 3, 1)
     value_t = value_flipped.permute(0, 2, 3, 1)
     n_lyr = value_t.shape[-1]
-    pres_lyr = torch.linspace(0, 1, n_pres_lyr, device=device)
+    pres_lyr = torch.linspace(1.0/n_pres_lyr, 1.0, n_pres_lyr, device=device)
 
     indices = torch.searchsorted(pres_norm_t, pres_lyr.expand(pres_norm_t.shape[:-1] + (n_pres_lyr,)))
     indices = torch.clamp(indices, 1, n_lyr - 1)
